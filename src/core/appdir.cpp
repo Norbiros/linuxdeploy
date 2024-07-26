@@ -1,4 +1,5 @@
 // system headers
+#include <filesystem>
 #include <set>
 #include <map>
 #include <string>
@@ -29,10 +30,12 @@ using namespace linuxdeploy::core::log;
 
 using namespace cimg_library;
 namespace bf = boost::filesystem;
+namespace fs = std::filesystem;
 
 namespace {
     // equivalent to 0644
     constexpr bf::perms DEFAULT_PERMS = bf::owner_write | bf::owner_read | bf::group_read | bf::others_read;
+    constexpr fs::perms DEFAULT_PERMS_FS = fs::perms::owner_write | fs::perms::owner_read | fs::perms::group_read | fs::perms::others_read;
     // equivalent to 0755
     constexpr bf::perms EXECUTABLE_PERMS = DEFAULT_PERMS | bf::owner_exe | bf::group_exe | bf::others_exe;
 
@@ -150,23 +153,35 @@ namespace linuxdeploy {
                     static bool copyFile(const bf::path& from, bf::path to, bf::perms addedPerms, bool overwrite = false) {
                         ldLog() << "Copying file" << from << "to" << to << std::endl;
 
+                        const auto fromNew = fs::path(from.string());
+                        const auto toNew = fs::path(to.string());
+
+
                         try {
-                            if (!to.parent_path().empty() && !bf::is_directory(to.parent_path()) && !bf::create_directories(to.parent_path())) {
+                            if (!to.parent_path().empty() && !fs::is_directory(toNew.parent_path()) && !fs::create_directories(toNew.parent_path())) {
                                 ldLog() << LD_ERROR << "Failed to create parent directory" << to.parent_path() << "for path" << to << std::endl;
                                 return false;
                             }
 
-                            if (*(to.string().end() - 1) == '/' || bf::is_directory(to))
+                            if (*(to.string().end() - 1) == '/' || fs::is_directory(toNew))
                                 to /= from.filename();
 
-                            if (!overwrite && bf::exists(to)) {
+                            if (!overwrite && fs::exists(toNew)) {
                                 ldLog() << LD_DEBUG << "File exists, skipping:" << to << std::endl;
                                 return true;
                             }
 
-                            bf::copy_file(from, to, bf::copy_option::overwrite_if_exists);
-                            bf::permissions(to, addedPerms | bf::add_perms);
-                        } catch (const bf::filesystem_error& e) {
+                            ldLog() << LD_DEBUG << "Copying file" << from << "to" << to << std::endl;
+                            fs::copy_file(fromNew, toNew, fs::copy_options::overwrite_existing);
+
+                            const auto perms = DEFAULT_PERMS_FS;
+                            {
+                                std::stringstream addedPermsStr;
+                                addedPermsStr << std::oct << std::setfill('0') << std::setw(2) << static_cast<unsigned int>(perms);
+                                ldLog() << LD_DEBUG << "Adding permissions 0o" << LD_NO_SPACE << "..." << "to" << toNew << std::endl;
+                            }
+                            fs::permissions(toNew, perms, fs::perm_options::add);
+                        } catch (const fs::filesystem_error& e) {
                             ldLog() << LD_ERROR << "Failed to copy file" << from << "to" << to << LD_NO_SPACE << ":" << e.what() << std::endl;
                             return false;
                         }
